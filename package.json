@@ -1,0 +1,31 @@
+{
+    "type": "module",
+    "dependencies": {
+        "axios": "^1.7.9",
+        "axios-cookiejar-support": "^5.0.5",
+        "tough-cookie": "^5.1.2"
+    },
+    "name": "cetelem-transactions",
+    "description": "Node.js module to retrieve transactions from a Cetelem card and save them as CSV or JSON files.",
+    "version": "1.0.0",
+    "main": "app.js",
+    "scripts": {
+        "test": "echo \"Error: no test specified\" && exit 1"
+    },
+    "keywords": [
+        "cetelem",
+        "retrieve",
+        "fetch",
+        "transactions"
+    ],
+    "author": "José Coelho Melo",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/josecoelhomelo/cetelem-transactions.git"
+    },
+    "bugs": {
+        "url": "https://github.com/josecoelhomelo/cetelem-transactions/issues"
+    },
+    "homepage": "https://github.com/josecoelhomelo/cetelem-transactions#readme"
+}

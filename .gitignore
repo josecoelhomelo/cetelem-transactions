@@ -1,0 +1,5 @@
+node_modules/
+transactions/
+.cookies.json
+.token.json
+package-lock.json
