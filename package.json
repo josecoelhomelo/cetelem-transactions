@@ -7,7 +7,7 @@
     },
     "name": "cetelem-transactions",
     "description": "Node.js module to retrieve transactions from a Cetelem card and save them as CSV or JSON files.",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "main": "app.js",
     "scripts": {
         "test": "echo \"Error: no test specified\" && exit 1"
