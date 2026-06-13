@@ -50,7 +50,7 @@ cetelem.saveTransactions(transactions, {
 
 ### `login`
 
-Logs in with the provided Cetelem credentials and stores the homebanking auth token in `.token.json` and session cookies in `.cookies.json` in the current working directory.
+Logs in with the provided Cetelem credentials and stores the homebanking auth token in `.token` and session cookies in `.cookies.json` in the state directory.
 
 ```js
 cetelem.login({
@@ -64,7 +64,7 @@ cetelem.login({
 | `fiscalNumber` | The user's Portuguese fiscal number. |
 | `password` | The user's Cetelem password. |
 | `otp` | Optional SMS one-time code. If omitted, the module prompts for it interactively. |
-| `stateDir` | Optional directory for `.token.json` and `.cookies.json`. Defaults to the current working directory. |
+| `stateDir` | Optional directory for `.token` and `.cookies.json`. Defaults to the current working directory. |
 
 The login flow first validates any stored auth token by calling the Cetelem cards endpoint. If that check fails, it falls back to the full login flow and requests the SMS OTP code.
 

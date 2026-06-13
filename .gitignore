@@ -1,5 +1,5 @@
 node_modules/
 transactions/
 .cookies.json
-.token.json
+.token
 package-lock.json

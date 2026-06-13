@@ -8,7 +8,7 @@ import { CookieJar } from 'tough-cookie';
 const hbEndpoint = 'https://hb.cetelem.pt';
 const authEndpoint = 'https://auth.cetelem.pt';
 const defaultStateDir = '.';
-const tokenFileName = '.token.json';
+const tokenFileName = '.token';
 const cookieFileName = '.cookies.json';
 const movementsBatchSize = Number(process.env.MOVEMENTS_BATCH_SIZE) || 5;
 
@@ -54,16 +54,13 @@ const configureState = (dir = defaultStateDir) => {
     createClient();
 };
 configureState();
-const loadTokens = () => {
-    try {
-        return JSON.parse(fs.readFileSync(state.tokenFile, 'utf-8'));
-    } catch {
-        return {};
-    }
+const loadToken = () => {
+    if (!fs.existsSync(state.tokenFile)) { return null; }
+    return fs.readFileSync(state.tokenFile, 'utf8').trim() || null;
 };
-const saveToken = (tokens) => {
+const saveToken = (token) => {
     ensureStateDir();
-    fs.writeFileSync(state.tokenFile, JSON.stringify(tokens, null, 2), 'utf-8');
+    fs.writeFileSync(state.tokenFile, token, 'utf-8');
 };
 
 /**
@@ -245,10 +242,10 @@ const getCards = () => client.get(`${hbEndpoint}/api/contract/cards`, {
  * @throws {Error} If no token exists or validation fails.
  */
 const reuseAuthToken = async () => {
-    const tokens = loadTokens();
-    if (!tokens.authToken) { throw Error('No auth token found'); }
+    const authToken = loadToken();
+    if (!authToken) { throw Error('No auth token found'); }
 
-    token = tokens.authToken;
+    token = authToken;
     try {
         await getCards();
         return token;
@@ -289,7 +286,7 @@ const login = async (params) => {
 
         const otp = params.otp || await requestOTP();
         token = await confirmOTP({ otp, fiscalNumber: params.fiscalNumber });
-        saveToken({ authToken: token });
+        saveToken(token);
         saveCookieJar();
         return token;
     } catch (err) {
