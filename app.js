@@ -6,7 +6,7 @@ import path from 'path';
 import readline from 'readline';
 import { CookieJar } from 'tough-cookie';
 const hbEndpoint = 'https://hb.cetelem.pt';
-const authEndpoint = 'https://auth.cetelem.pt';
+const authEndpoint = `${hbEndpoint}/api/auth`;
 const defaultStateDir = '.';
 const tokenFileName = '.token';
 const cookieFileName = '.cookies.json';
@@ -82,20 +82,15 @@ const requestOTP = () => new Promise((resolve, reject) => {
 });
 
 /**
- * Splits a four-digit OTP into the field names expected by Cetelem.
+ * Validates and normalizes a four-digit OTP.
  * @param {string|number} otp - Four-digit one-time password.
- * @returns {Object} OTP payload fields.
+ * @returns {string} OTP without whitespace.
  * @throws {Error} If the OTP is not four digits.
  */
-const splitOTP = (otp) => {
+const normalizeOTP = (otp) => {
     const value = String(otp || '').replace(/\s/g, '');
     if (!/^\d{4}$/.test(value)) { throw Error('OTP must contain 4 digits'); }
-    return {
-        otp1: value[0],
-        otp2: value[1],
-        otp3: value[2],
-        otp4: value[3]
-    };
+    return value;
 };
 
 /**
@@ -109,107 +104,51 @@ const hashPassword = (password) => crypto
     .digest('hex');
 
 /**
- * Gets the login hash from the Cetelem homebanking redirect.
- * @returns {Promise<string>} Resolves with the login hash.
- * @throws {Error} If the redirect or hash is missing.
+ * Starts a Cetelem login session for the given fiscal number.
+ * @param {string} fiscalNumber - User fiscal number.
+ * @returns {Promise<string>} Resolves with the session hash.
+ * @throws {Error} If a captcha is required or the hash is missing.
  */
-const getHash = async () => {
-    const res = await client.get(`${hbEndpoint}/`, {
-        maxRedirects: 0,
-        validateStatus: (status) => status >= 200 && status < 400
-    });
-
-    const location = res.headers.location;
-    if (!location) { throw Error('Hash redirect not found'); }
-
-    const url = new URL(location, hbEndpoint);
-    const hash = url.searchParams.get('hash');
-    if (!hash) { throw Error('Hash not found'); }
-    return hash;
+const createSession = async (fiscalNumber) => {
+    const res = await client.post(`${authEndpoint}/sessions`, { fiscalNumber });
+    if (res.data?.captchaRequired) { throw Error('Captcha required, log in through the browser first'); }
+    if (!res.data?.hash) { throw Error('Session hash not found'); }
+    return res.data.hash;
 };
 
 /**
- * Opens the Cetelem login gateway and lets the cookie jar capture session cookies.
- * @param {string} hash - Login hash returned by getHash().
- * @returns {Promise<void>} Resolves when gateway cookies have been received.
+ * Submits the hashed password for the current login session.
+ * @param {string} hash - Session hash returned by createSession().
+ * @param {string} password - Plain-text Cetelem password.
+ * @returns {Promise<string>} Resolves with the session hash.
+ * @throws {Error} If the hash is missing.
  */
-const getGatewayCookies = async (hash) => {
-    await client.get(`${authEndpoint}/web/gtw/logingateway`, {
-        params: { hash }
-    });
+const submitPassword = async (hash, password) => {
+    const res = await client.put(`${authEndpoint}/sessions`, { hash, password: hashPassword(password) });
+    if (!res.data?.hash) { throw Error('Session hash not found'); }
+    return res.data.hash;
 };
 
 /**
- * Submits one step in the Cetelem login wizard.
- * @param {Object} data - JSON body expected by the current login step.
- * @returns {Promise<Object>} Axios response from the step endpoint.
+ * Requests an SMS OTP for the current login session.
+ * @param {string} hash - Session hash.
+ * @returns {Promise<void>} Resolves when the SMS has been requested.
  */
-const generateStep = (data) => {
-    const payload = { ...data };
-    if (payload.password) { payload.password = hashPassword(payload.password); }
-
-    return client.post(
-        `${authEndpoint}/c/gtwLogin/render-util/generateStep`,
-        JSON.stringify(payload),
-        {
-            params: { action: 'next' },
-            headers: { 'Content-Type': 'text/plain' }
-        }
-    );
+const sendOTP = async (hash) => {
+    await client.post(`${authEndpoint}/users/otp:send`, { hash });
 };
 
 /**
- * Extracts the second hash from Cetelem's base64-encoded OTP response.
- * @param {Object} body - Response body returned by the OTP generateStep call.
- * @returns {string} Second hash used by the confirm endpoint.
- * @throws {Error} If the encoded form or hash is missing.
- */
-const extractSecondHash = (body) => {
-    const encoded = body?.formEncoded;
-    if (!encoded) { throw Error('Encoded OTP form not found'); }
-
-    const html = Buffer.from(encoded, 'base64').toString('utf-8');
-    const match = html.match(/secondHash=([^&"]+)/);
-    if (!match) { throw Error('Second hash not found'); }
-    return match[1];
-};
-
-/**
- * Extracts the homebanking bearer token from Cetelem's confirm page.
- * @param {string} body - HTML or script response from the confirm endpoint.
- * @returns {string} Bearer token used by Cetelem API endpoints.
+ * Validates the SMS OTP and retrieves the Cetelem homebanking auth token.
+ * @param {string} hash - Session hash.
+ * @param {string|number} otp - Four-digit SMS one-time password.
+ * @returns {Promise<string>} Resolves with the auth token.
  * @throws {Error} If the token is missing.
  */
-const extractAuthToken = (body) => {
-    const match = String(body || '').match(/setItem\("authToken",\s*'([^']+)'/);
-    if (!match) { throw Error('Auth token not found'); }
-    return match[1];
-};
-
-/**
- * Confirms the SMS OTP and retrieves the Cetelem homebanking auth token.
- * @param {Object} params - Confirmation parameters.
- * @param {string|number} params.otp - Four-digit SMS one-time password.
- * @param {string} params.fiscalNumber - User fiscal number.
- * @returns {Promise<string>} Resolves with the auth token.
- */
-const confirmOTP = async ({ otp, fiscalNumber }) => {
-    const otpPayload = {
-        ...splitOTP(otp),
-        validateOtpTarget: '/c/gtwLogin/render-util/generateStep?action=next',
-        formOtp_link: 'resendOtp(this,"/c/gtwLogin/render-util/generateStep?action=SELF_LOGIN_OTP_STEP");',
-        auxFieldIdentifier: '1'
-    };
-
-    const otpRes = await generateStep(otpPayload);
-    const secondHash = extractSecondHash(otpRes.data);
-    const tokenRes = await client.post(`${hbEndpoint}/group/hb/confirm`, JSON.stringify(otpPayload), {
-        params: { secondHash, fiscalNumber },
-        headers: { 'Content-Type': 'text/plain' },
-        responseType: 'text'
-    });
-
-    return extractAuthToken(tokenRes.data);
+const validateOTP = async (hash, otp) => {
+    const res = await client.post(`${authEndpoint}/users/otp:validate`, { otp: normalizeOTP(otp), hash });
+    if (!res.data?.jwt) { throw Error('Auth token not found'); }
+    return res.data.jwt;
 };
 
 /**
@@ -279,13 +218,12 @@ const login = async (params) => {
     if (token) { return token; }
 
     try {
-        const hash = await getHash();
-        await getGatewayCookies(hash);
-        await generateStep({ fiscalNumber: params.fiscalNumber, auxFieldIdentifier: '1' });
-        await generateStep({ password: params.password, auxFieldIdentifier: '1' });
+        let hash = await createSession(params.fiscalNumber);
+        hash = await submitPassword(hash, params.password);
 
+        await sendOTP(hash);
         const otp = params.otp || await requestOTP();
-        token = await confirmOTP({ otp, fiscalNumber: params.fiscalNumber });
+        token = await validateOTP(hash, otp);
         saveToken(token);
         saveCookieJar();
         return token;
